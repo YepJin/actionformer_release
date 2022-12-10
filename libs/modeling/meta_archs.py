@@ -10,7 +10,6 @@ from .losses import ctr_diou_loss_1d, sigmoid_focal_loss
 
 from ..utils import batched_nms
 
-
 class PtTransformerClsHead(nn.Module):
     """
     1D Conv heads for classification
@@ -49,9 +48,7 @@ class PtTransformerClsHead(nn.Module):
                 )
             )
             if with_ln:
-                self.norm.append(
-                    LayerNorm(out_dim)
-                )
+                self.norm.append(LayerNorm(out_dim))
             else:
                 self.norm.append(nn.Identity())
 
@@ -63,8 +60,9 @@ class PtTransformerClsHead(nn.Module):
 
         # use prior in model initialization to improve stability
         # this will overwrite other weight init
-        bias_value = -(math.log((1 - prior_prob) / prior_prob))
-        torch.nn.init.constant_(self.cls_head.conv.bias, bias_value)
+        if prior_prob > 0:
+            bias_value = -(math.log((1 - prior_prob) / prior_prob))
+            torch.nn.init.constant_(self.cls_head.conv.bias, bias_value)
 
         # a quick fix to empty categories:
         # the weights assocaited with these categories will remain unchanged
@@ -129,9 +127,7 @@ class PtTransformerRegHead(nn.Module):
                 )
             )
             if with_ln:
-                self.norm.append(
-                    LayerNorm(out_dim)
-                )
+                self.norm.append(LayerNorm(out_dim))
             else:
                 self.norm.append(nn.Identity())
 
@@ -172,7 +168,7 @@ class PtTransformer(nn.Module):
         self,
         backbone_type,         # a string defines which backbone we use
         fpn_type,              # a string defines which fpn we use
-        backbone_arch,         # a tuple defines # layers in embed / stem / branch
+        backbone_arch,         # a tuple defines #layers in embed / stem / branch
         scale_factor,          # scale factor between branch layers
         input_dim,             # input feat dim
         max_seq_len,           # max sequence length (used for training)
@@ -197,7 +193,7 @@ class PtTransformer(nn.Module):
         test_cfg               # other cfg for testing
     ):
         super().__init__()
-        # re-distribute params to backbone / neck / head
+         # re-distribute params to backbone / neck / head
         self.fpn_strides = [scale_factor**i for i in range(
             fpn_start_level, backbone_arch[-1]+1
         )]
@@ -281,6 +277,8 @@ class PtTransformer(nn.Module):
                     'with_ln' : embd_with_ln
                 }
             )
+        if isinstance(embd_dim, (list, tuple)):
+            embd_dim = sum(embd_dim)
 
         # fpn network: convs
         assert fpn_type in ['fpn', 'identity']
@@ -449,7 +447,7 @@ class PtTransformer(nn.Module):
 
     @torch.no_grad()
     def label_points_single_video(self, concat_points, gt_segment, gt_label):
-        # concat_points : F T x 4 (t, regressoin range, stride)
+        # concat_points : F T x 4 (t, regression range, stride)
         # gt_segment : N (#Events) x 2
         # gt_label : N (#Events) x 1
         num_pts = concat_points.shape[0]
@@ -743,6 +741,7 @@ class PtTransformer(nn.Module):
                 # truncate all boundaries within [0, duration]
                 segs[segs<=0.0] *= 0.0
                 segs[segs>=vlen] = segs[segs>=vlen] * 0.0 + vlen
+            
             # 4: repack the results
             processed_results.append(
                 {'video_id' : vidx,
